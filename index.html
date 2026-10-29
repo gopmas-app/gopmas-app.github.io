@@ -7,7 +7,13 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <link rel="icon" type="image/png" href="parrot.png">  <!-- ต้องประกาศเอง: โดเมน tongo51.github.io ใช้ร่วมกับ TSM ไม่ประกาศ เบราว์เซอร์จะหยิบไอคอนพวงมาลัยของ TSM มาใช้ -->
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
-<link rel="manifest" href="manifest.webmanifest">
+<script>
+  // iPhone: ไอคอนหน้าจอโฮมมีที่เก็บข้อมูลแยกจาก Safari → ต้องพา ?api= ติดไปกับไอคอน
+  // manifest มี start_url ตายตัว (ไม่มี ?api=) จึงไม่ใส่ให้ iOS — Safari จะใช้ URL หน้าปัจจุบันเป็นไอคอนแทน
+  // Android ใช้ manifest ตามปกติ (Chrome แชร์ที่เก็บข้อมูลกับแอปที่ติดตั้ง)
+  var isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+  if (!isIOS) { var m = document.createElement('link'); m.rel = 'manifest'; m.href = 'manifest.webmanifest'; document.head.appendChild(m); }
+</script>
 <title>GoPMaS POS</title>
 <style>
   :root {

@@ -30,8 +30,9 @@ var cfg = load(LS.cfg, { url: '' });
   // trust boundary: รับเฉพาะ Apps Script /exec — กันลิงก์ปลอมพาแอปไปส่ง PIN ให้ server อื่น
   if (/^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(api)){
     if (cfg.url !== api){ cfg.url = api; save(LS.cfg, cfg); localStorage.removeItem(LS.session); }  // เปลี่ยนร้าน = ล็อกอินใหม่
-  }
-  history.replaceState(null, '', location.pathname);   // ไม่ให้ URL ติดไปกับไอคอนบนหน้าจอโฮม
+    // คง ?api= ไว้ใน URL — iPhone สร้างไอคอนจาก URL นี้ และไอคอนเปิดมาด้วยที่เก็บข้อมูลว่าง (ทดสอบจริง 29 ต.ค. 2026)
+    history.replaceState(null, '', location.pathname + '?api=' + encodeURIComponent(api));
+  } else history.replaceState(null, '', location.pathname);
 })();
 var session = load(LS.session, null);
 
