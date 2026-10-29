@@ -52,7 +52,6 @@ function renderInstallHint(){
 var master = load(LS.master, { products:[], customers:[], roster:[] });
 var roster = load(LS.roster, { employees:[], lines:[] });
 var noSackPrefs = load(LS.nosack, {}); // จำต่อลูกค้าในเครื่อง: ลูกค้าที่ซื้อซองเป็นก้อน (ไม่ใช้กระสอบ)
-var vehicles = load('pos.vehicles', []);  // รถจากสมุดประจำรถ TSM [{plate,name,line,lastKm}] — cache ไว้ใช้ตอน offline
 var day = null;
 var editKey = null, payMode = 'เงินสด', modalCust = null;
 var pendingLogin = null, selectedLine = null, pinBuf = '';
@@ -260,7 +259,7 @@ function enterApp(){
     return '<button class="'+(i===0?'on':'')+'" onclick="go(\''+n[0]+'\',this)"><span class="ic">'+n[1]+'</span>'+n[2]+'</button>';
   }).join('');
   go(navs[0][0], $('nav').children[0]);
-  if (session.role==='employee') loadVehicles();  // ดึงรายการรถตั้งแต่เข้าแอป — ไม่ต้องรอเปิดหน้าปิดวัน (เคยปิดวันก่อนรายการรถโหลดเสร็จ → ไม่ได้ส่งรถ)
+  if (session.role==='employee') loadLastKm();  // ไมล์ออก = ไมล์กลับของเมื่อวาน — ดึงตั้งแต่เข้าแอป ใช้ได้แม้ออฟไลน์ตอนปิดวัน
   renderChip(load(LS.queue,[]).length);
   loadAvatars();
   if (session.role==='employee'){ ensureMaster(); }
@@ -271,7 +270,7 @@ function go(id, btn){
   Array.prototype.forEach.call($('nav').children, function(b){ b.classList.remove('on'); });
   if (btn) btn.classList.add('on');
   if (id==='sell'){ renderChallenge(); renderCustomers(); sendHeartbeat(); }  // sync กับเครื่องบัดดี้ทันทีที่เปิดหน้า
-  if (id==='close'){ renderSummary(); loadVehicles(); loadWithdraw(); loadSackRet(); sendHeartbeat(); loadHistory(); }
+  if (id==='close'){ renderSummary(); loadWithdraw(); loadSackRet(); sendHeartbeat(); loadHistory(); }
   if (id==='monitor') loadMonitor();
   if (id==='products') loadProducts();
   if (id==='lines'){ renderLineProducts(); loadSackDeductAdmin(); }
@@ -297,8 +296,9 @@ function refreshMaster(silent){
 
 // ================= day state =================
 // tomb = บิลที่ลบไปแล้ว {ชื่อลูกค้า:เวลา} — ต้องเก็บไว้ ไม่งั้น sync จะดึงบิลที่ลบแล้วกลับมาจากเครื่องบัดดี้
-function newDay(){ return { date:todayStr(), entries:{}, tomb:{}, employees:[], withdraw:{}, grokk:{},
-  fuel:'', gas:'', liters:'', plate:'', startKm:'', endKm:'', sackAdd:'', sackRet:'', sackCarry:0, sackDeductOn:false, sackDeduct:0, sendMethod:'โอนเข้าบัญชี' }; }
+// buy = ซื้อจากโรงงาน (ตามใบเสร็จ) · withdraw = เบิกจากหน้าร้าน (ดึงจากชีต) · ret = ของเหลือคืนเข้าร้านตอนเย็น
+function newDay(){ return { date:todayStr(), entries:{}, tomb:{}, employees:[], withdraw:{}, buy:{}, ret:{}, cashCount:'',
+  fuel:'', gas:'', liters:'', startKm:'', endKm:'', sackAdd:'', sackRet:'', sackCarry:0, sackDeductOn:false, sackDeduct:0 }; }
 function saveDay(){ save(LS.day(day.date), day); scheduleHeartbeat(); }
 
 // ================= sell: challenge =================
@@ -443,11 +443,24 @@ function totals(){
   var send = cash+debt-fuel-gas;  // ยอดขาย = ฐานคอม = คอลัมน์ I — ห้ามบวกค่าหักกระสอบเข้าตัวนี้
   // ค่าหักกระสอบเพิ่ม "เงินสดที่ต้องวาง" (deposit) เท่านั้น ไม่เข้า send/คอม/คอลัมน์ I
   var deduct = (day && day.sackDeductOn) ? (Number(day.sackDeduct)||0) : 0;
+  // กันทุจริต: เงินที่นับได้จริง − ที่ต้องส่ง (ว่าง = ยังไม่นับ)
+  var counted = day && day.cashCount!=='' && day.cashCount!=null ? Number(day.cashCount)||0 : null;
   return { cash:cash, debt:debt, owed:owed, sold:sold, fuel:fuel, gas:gas,
-           send:send, deduct:deduct, deposit:send+deduct };
+           send:send, deduct:deduct, deposit:send+deduct,
+           counted:counted, cashDiff: counted==null ? null : counted-(send+deduct) };
 }
-function setSendMethod(m){ day.sendMethod=m; Array.prototype.forEach.call($('paySeg').children,function(b){ b.classList.toggle('on', b.textContent===m); });
-  $('payHint').textContent = m==='โอนเข้าบัญชี' ? 'โอนแล้วแนบใบนำฝากมากับใบรายงาน A4' : 'ส่งเงินสดพร้อมใบรายงาน'; saveDay(); }
+// กันทุจริต: ของต้องลงตัว — ซื้อโรงงาน + เบิกร้าน − ขาย − คืนร้าน = 0 (รถเริ่มวันที่ 0 เพราะเย็นคืนของเข้าร้านหมด)
+// diff > 0 = ของขาด (หายไปโดยไม่มีบิล) · diff < 0 = ขายเกินของที่มี (บิลผิด/ไม่ได้บันทึกของเข้า)
+function stockRows(){
+  var sold = totals().sold;
+  return master.products.map(function(p){
+    var b=Number(day.buy[p.id])||0, w=Number(day.withdraw[p.id])||0, s=sold[p.id]||0, r=Number(day.ret[p.id])||0;
+    return { id:p.id, name:p.name, buy:b, withdraw:w, sold:s, ret:r, diff:b+w-s-r };
+  });
+}
+function diffLabel(d){ return d>0 ? 'ขาด '+fmt(d) : d<0 ? 'เกิน '+fmt(-d) : '✓'; }
+function setStock(k, pid, v){ day[k][pid]=v; saveDay(); renderSummary(); }
+function setCashCount(v){ day.cashCount=v; saveDay(); renderSummary(); }
 function setFuelGas(k, v){ day[k]=v; renderSummary(); }  // ต้นเหตุบั๊กเดิม: renderSummary เคยอ่าน input ทับ day ทำให้ค่าหายตอน reload
 function renderSummary(){
   var t = totals();
@@ -464,19 +477,25 @@ function renderSummary(){
   $('empPick').innerHTML = emps.map(function(e){
     return '<span class="emp-tag '+(day.employees.indexOf(e.name)>=0?'on':'')+'" onclick="toggleEmp(\''+e.name.replace(/'/g,"\\'")+'\')">'+e.name+(e.spare?' (สแปร์)':'')+'</span>';
   }).join('') || '<span class="note">ไม่มีรายชื่อพนักงาน</span>';
-  // ตาราง เบิก/ขาย/กรอก/คืน
-  var rows = '<tr><th>สินค้า</th><th>เบิก</th><th>ขาย</th><th>กรอก</th><th>คืน</th></tr>';
-  master.products.forEach(function(p){
-    var wd = day.withdraw[p.id]||0, s = t.sold[p.id]||0, g = Number(day.grokk[p.id])||0;
-    if (!wd && !s && !g) return;
-    var ret = wd - s - g;
-    rows += '<tr><td>'+p.name+'</td><td>'+fmt(wd)+'</td><td>'+fmt(s)+'</td>'
-      + '<td><input type="number" inputmode="numeric" value="'+(g||'')+'" style="width:44px;text-align:right;padding:3px 4px;font-size:13px" oninput="setGrokk(\''+p.id+'\',this.value)"></td>'
-      + '<td'+(ret<0?' style="color:var(--red)"':'')+'>'+fmt(ret)+'</td></tr>';
+  // ตารางกระทบยอดของ — ช่องกรอกอัปเดตเฉพาะคอลัมน์ผลลัพธ์ ไม่วาดตารางใหม่ (วาดใหม่ = คีย์บอร์ดมือถือหุบทุกตัวอักษร)
+  var cell = function(k, id, v){ return '<td><input type="number" inputmode="numeric" min="0" value="'+(v||'')+'" class="stk" oninput="setStock(\''+k+'\',\''+id+'\',this.value)"></td>'; };
+  var srows = stockRows(), short = 0;
+  if (!$('stockTbl').contains(document.activeElement)){
+    $('stockTbl').innerHTML = '<tr><th>สินค้า</th><th>ซื้อ<br>โรงงาน</th><th>เบิก<br>ร้าน</th><th>ขาย</th><th>คืน<br>ร้าน</th><th>ผล</th></tr>'
+      + srows.map(function(r){ return '<tr><td>'+r.name+'</td>'+cell('buy',r.id,r.buy)+'<td id="sw-'+r.id+'"></td><td id="ss-'+r.id+'"></td>'
+        + cell('ret',r.id,r.ret)+'<td id="sd-'+r.id+'"></td></tr>'; }).join('');
+  }
+  srows.forEach(function(r){
+    $('sw-'+r.id).textContent = fmt(r.withdraw); $('ss-'+r.id).textContent = fmt(r.sold);
+    var d = $('sd-'+r.id); d.textContent = diffLabel(r.diff); d.style.color = r.diff ? 'var(--red)' : 'var(--green)';
+    if (r.diff>0) short += r.diff;
   });
-  $('stockTbl').innerHTML = rows;
+  $('stockNote').textContent = srows.some(function(r){ return r.diff; }) ? 'ของไม่ลงตัว — ตรวจใบเสร็จโรงงาน / บิล / ของเหลืออีกครั้ง' : '';
   $('tCash').textContent=fmt(t.cash); $('tDebt').textContent=fmt(t.debt); $('tOwed').textContent=fmt(t.owed);
   $('tSend').textContent=fmt(t.send); $('tDeposit').textContent=fmt(t.deposit);
+  if (document.activeElement!==$('inCashCount')) $('inCashCount').value = day.cashCount;
+  $('tCashDiff').textContent = t.cashDiff==null ? 'ยังไม่ได้นับ' : t.cashDiff ? (t.cashDiff<0?'ขาด ':'เกิน ')+fmt(Math.abs(t.cashDiff)) : '✓ ตรง';
+  $('tCashDiff').style.color = t.cashDiff ? 'var(--red)' : t.cashDiff===0 ? 'var(--green)' : 'var(--muted)';
   var n = day.employees.length||1;
   $('tComm').textContent = fmt(Math.round(t.send*0.05/n))+' /คน ('+n+' คน)';
   // หักค่ากระสอบค้างส่ง — แอดมินกำหนดต่อสาย พนักงานแก้ไม่ได้ · โผล่เมื่อมีค่าหัก (>0)
@@ -487,37 +506,24 @@ function renderSummary(){
   $('sackCarry').textContent = fmt(day.sackCarry);
   $('sackNet').textContent = fmt(sackNet);
   $('sackTotal').textContent = fmt((Number(day.sackCarry)||0) + sackNet);
-  $('inFuel').value=day.fuel; $('inGas').value=day.gas; $('inSackAdd').value=day.sackAdd; $('inSackRet').value=day.sackRet;
+  $('inFuel').value=day.fuel; $('inGas').value=day.gas; $('inSackAdd').value=day.sackAdd;
+  if (document.activeElement!==$('inSackRet')) $('inSackRet').value=day.sackRet;
   showEl('amendBtn', !!day.closed);
-  setSendMethod(day.sendMethod||'โอนเข้าบัญชี');
   renderVehicle();
 }
 
-// ================= รถวันนี้ → สมุดประจำรถ TSM =================
-// รถประจำสายขึ้นให้อัตโนมัติ (ตั้งสายที่หน้าผู้ดูแลของ TSM) · สลับรถได้จาก dropdown · ส่งไป TSM พร้อมปิดวัน
-function vehOf(plate){ return vehicles.filter(function(v){ return v.plate===plate; })[0]; }
-function loadVehicles(){
-  apiGet('vehicles').then(function(j){
+// ================= รถวันนี้: ไมล์ + น้ำมัน (เก็บในแท็บ trip ของชีตร้าน) =================
+// ไมล์ออกเติมจากไมล์กลับครั้งล่าสุดของสาย — ไมล์ไม่ต่อกัน = รถถูกใช้นอกงาน (แก้ได้ แต่เห็นในรายงาน)
+function loadLastKm(){
+  apiGet('lastkm',{ line:session.line }).then(function(j){
     if (!j.ok) return;
-    vehicles = j.data; save('pos.vehicles', vehicles);
-    if ($('scr-close').classList.contains('active')) renderVehicle();
+    save('pos.lastkm.'+session.line, j.km);
+    if (day && !day.startKm && j.km){ day.startKm = j.km; saveDay(); if ($('scr-close').classList.contains('active')) renderVehicle(); }
   }).catch(function(){});
 }
 function renderVehicle(){
-  showEl('vehCard', vehicles.length>0);
-  if (!vehicles.length) return;
-  if (day.plate===undefined || day.plate===''){
-    var mine = vehicles.filter(function(v){ return v.line===session.line; })[0];
-    if (mine && !day.vehPicked){ day.plate = mine.plate; }
-  }
-  var v = vehOf(day.plate);
-  if (v && !day.startKm && v.lastKm) day.startKm = v.lastKm;
-  saveDay();
-  $('vehSel').innerHTML = '<option value="">— ไม่บันทึกรถ —</option>' + vehicles.map(function(x){
-    return '<option value="'+x.plate+'"'+(x.plate===day.plate?' selected':'')+'>'+x.plate+(x.line?' · สาย '+x.line:'')+(x.name?' · '+x.name:'')+'</option>';
-  }).join('');
+  if (!day.startKm){ var k = load('pos.lastkm.'+session.line, ''); if (k) day.startKm = k; }
   $('inStartKm').value=day.startKm||''; $('inEndKm').value=day.endKm||''; $('inLiters').value=day.liters||'';
-  showEl('vehFields', !!day.plate);
   renderDist();
 }
 function renderDist(){
@@ -525,15 +531,9 @@ function renderDist(){
   $('vehDist').textContent = day.startKm && day.endKm ? fmt(d)+' กม.' : '–';
   $('vehDist').style.color = d<0 ? 'var(--red)' : '';
 }
-function setPlate(p){
-  day.plate = p; day.vehPicked = true;
-  var v = vehOf(p); day.startKm = v && v.lastKm ? v.lastKm : '';
-  renderVehicle();
-}
 function setVeh(k, val){ day[k]=val; saveDay(); renderDist(); }
-// คืนข้อความเตือนถ้ากรอกไม่ครบ (ไม่บล็อกถ้าเลือก "ไม่บันทึกรถ")
+// คืนข้อความเตือนถ้ากรอกไม่ครบ — ลูกค้าต้องการบันทึกไมล์ทุกวัน
 function vehicleProblem(){
-  if (!day.plate) return '';
   if (!day.startKm || !day.endKm) return 'กรอกเลขไมล์ออกและไมล์กลับ';
   if (Number(day.endKm) < Number(day.startKm)) return 'ไมล์กลับต้องไม่น้อยกว่าไมล์ออก';
   var fuel = Number(day.fuel)||0, liters = Number(day.liters)||0;
@@ -542,7 +542,7 @@ function vehicleProblem(){
   if (fuel>0 && (fuel/liters < 15 || fuel/liters > 80)) return 'น้ำมันตกลิตรละ '+fmt(Math.round(fuel/liters))+' บาท ผิดปกติ — ช่องลิตรต้องเป็นจำนวนลิตร ไม่ใช่บาท';
   return '';
 }
-function setGrokk(pid, v){ day.grokk[pid]=v; saveDay(); }
+function setSackRet(v){ day.sackRet=v; saveDay(); renderSummary(); }
 function toggleEmp(name){ var i=day.employees.indexOf(name); if(i>=0)day.employees.splice(i,1); else day.employees.push(name); saveDay(); renderSummary(); }
 function loadWithdraw(){
   $('wdStatus').textContent='กำลังดึง…';
@@ -555,11 +555,11 @@ function loadWithdraw(){
     saveDay(); renderSummary(); $('wdStatus').textContent='✓ ดึงแล้ว '+Object.keys(j.items).length+' รายการ · '+new Date().toLocaleTimeString('th-TH');
   }).catch(function(e){ $('wdStatus').textContent='✗ ดึงไม่ได้ (offline?) จะลองใหม่อัตโนมัติ'; });
 }
-// กระสอบวันนี้: คืนที่โรงงานรับไว้ (facdata) + ค้างสะสมยกมา — ดึงอัตโนมัติ
+// กระสอบ: ค้างสะสมยกมา + ค่าหัก — ดึงอัตโนมัติ · คืนวันนี้พนักงานนับเองในหน้าปิดวัน (ห้ามดึงทับ)
 function loadSackRet(){
   apiGet('sackret',{ line:session.line }).then(function(j){
     if (!j.ok) throw j.error;
-    day.sackRet = j.total; day.sackCarry = j.carry||0;
+    day.sackCarry = j.carry||0;
     // ค่าหักกระสอบ = แอดมินตั้งต่อสาย (พนักงานแก้ไม่ได้) · cap ไม่เกินมูลค่ากระสอบที่ค้างจริง carry×10
     var cap = (Number(j.carry)||0)*10, dd = Math.max(0, Number(j.deduct)||0);
     day.sackDeduct = Math.min(dd, cap); day.sackDeductOn = day.sackDeduct>0;
@@ -625,8 +625,8 @@ function buildPayload(){
   return { action:'submit',
     date:day.date, line:session.line, employees:day.employees,
     sold:t.sold, moneySent:t.send, fuelTotal:t.fuel+t.gas, cash:t.cash, owed:t.owed, debtPaid:t.debt,
-    customers:Object.keys(day.entries).length, sendMethod:day.sendMethod,
-    plate:day.plate||'', startKm:day.startKm||'', endKm:day.endKm||'', fuel:t.fuel, gas:t.gas, liters:day.liters||'',
+    customers:Object.keys(day.entries).length, cashCount:t.counted, cashDiff:t.cashDiff, stock:stockRows(),
+    startKm:day.startKm||'', endKm:day.endKm||'', fuel:t.fuel, gas:t.gas, liters:day.liters||'',
     sackAdd:Number(day.sackAdd)||0, sackRet:Number(day.sackRet)||0, sackDeduct:t.deduct };
     // ไม่ส่งรายบิลรายลูกค้า — หนี้บันทึกเป็นยอดรวมสาย/วันฝั่ง server, รายละเอียดอยู่ในใบ A4
 }
@@ -634,8 +634,13 @@ function submitDay(btn){
   if (!day.employees.length){ toast('เลือกพนักงานที่ไปวันนี้ก่อน'); return; }
   if (!Object.keys(day.entries).length){ toast('ยังไม่มีรายการขาย'); return; }
   var vp = vehicleProblem(); if (vp){ toast(vp); $('vehCard').scrollIntoView({behavior:'smooth', block:'center'}); return; }
+  var t = totals();
+  if (t.counted==null){ toast('นับเงินสดแล้วกรอก "เงินสดที่นับได้จริง" ก่อน'); $('inCashCount').focus(); return; }
   if (day.closed){ toast('ปิดวันนี้ส่งไปแล้ว — กด "แก้ไขรายงานที่ส่งแล้ว" ถ้าต้องแก้'); syncQueue(); return; }
-  arm(btn, 'แตะอีกครั้ง · ยืนยันส่งเงิน '+fmt(totals().deposit)+' บาท', function(){
+  // ของ/เงินไม่ลงตัว ยังปิดวันได้ (น้ำแข็งแตก/ละลายมีจริง) แต่ต้องเห็นก่อนยืนยัน และเจ้าของเห็นในชีต
+  var off = stockRows().filter(function(r){ return r.diff; }).length;
+  var warn = (off ? 'ของไม่ลงตัว '+off+' รายการ · ' : '') + (t.cashDiff ? 'เงิน'+(t.cashDiff<0?'ขาด ':'เกิน ')+fmt(Math.abs(t.cashDiff))+' · ' : '');
+  arm(btn, 'แตะอีกครั้ง · '+warn+'ยืนยันส่งเงิน '+fmt(t.counted)+' บาท', function(){
     var q = load(LS.queue,[]); q.push(buildPayload()); save(LS.queue,q);
     day.closed = true; save(LS.day(day.date), day);  // heartbeat หลังจากนี้ต้องไม่ทับสถานะ closed
     showEl('amendBtn', true);
@@ -885,8 +890,10 @@ function reportHTML(){
       + '<tr><td>เทียบปีที่แล้ว</td><td>'+Math.round(t.send*100/ly.total)+'%</td></tr>'
     : '';
   var sackNet = (Number(day.sackAdd)||0)-(Number(day.sackRet)||0), sackCarry = Number(day.sackCarry)||0;
-  var stock = master.products.map(function(p){ var wd=day.withdraw[p.id]||0, s=t.sold[p.id]||0, g=Number(day.grokk[p.id])||0;
-    if(!wd&&!s&&!g) return ''; return '<tr><td>'+p.name+'</td><td>'+fmt(wd)+'</td><td>'+fmt(s)+'</td><td>'+fmt(g)+'</td><td>'+fmt(wd-s-g)+'</td></tr>'; }).join('');
+  var stock = stockRows().map(function(r){
+    if(!r.buy&&!r.withdraw&&!r.sold&&!r.ret) return '';
+    return '<tr><td>'+r.name+'</td><td>'+fmt(r.buy)+'</td><td>'+fmt(r.withdraw)+'</td><td>'+fmt(r.sold)+'</td><td>'+fmt(r.ret)+'</td><td>'+diffLabel(r.diff)+'</td></tr>'; }).join('');
+  var km = (Number(day.endKm)||0)-(Number(day.startKm)||0);
   var credit = Object.keys(day.entries).filter(function(k){return day.entries[k].owed>0;})
     .map(function(k){ return '<tr><td>'+k+'</td><td>'+fmt(day.entries[k].owed)+'</td></tr>'; }).join('') || '<tr><td colspan="2">— ไม่มี —</td></tr>';
   var detail = Object.keys(day.entries).map(function(k){ var e=day.entries[k];
@@ -894,15 +901,18 @@ function reportHTML(){
     return '<tr><td>'+k+'</td><td style="text-align:left">'+items+'</td><td>'+fmt(e.total)+'</td><td>'+fmt(e.paid)+'</td><td>'+fmt(e.paidDebt)+'</td><td>'+fmt(e.owed)+'</td><td>'+(e.payment||'')+'</td></tr>';
   }).join('') || '<tr><td colspan="7">— ไม่มี —</td></tr>';
   return '<h1>รายงานขายประจำวัน — สาย '+session.line+'</h1>'
-    + '<div class="sub">วันที่ '+day.date+' · พนักงาน: '+(day.employees.join(', ')||'-')+' · ส่งเงินโดย: '+(day.sendMethod||'-')+'</div>'
+    + '<div class="sub">วันที่ '+day.date+' · พนักงาน: '+(day.employees.join(', ')||'-')
+    + ' · ไมล์ '+fmt(day.startKm)+' → '+fmt(day.endKm)+' ('+fmt(km)+' กม.) · น้ำมัน '+fmt(day.liters)+' ลิตร</div>'
     + '<div class="cols"><div>'
-    + '<table><tr><th>สินค้า</th><th>เบิก</th><th>ขาย</th><th>กรอก</th><th>คืน</th></tr>'+stock+'</table>'
+    + '<table><tr><th>สินค้า</th><th>ซื้อโรงงาน</th><th>เบิกร้าน</th><th>ขาย</th><th>คืนร้าน</th><th>ผล</th></tr>'+stock+'</table>'
     + '<table><tr><th colspan="2">ลูกค้าค้างจ่ายวันนี้</th></tr>'+credit+'</table></div><div>'
     + '<table><tr><td>ลูกค้าจ่าย</td><td>'+fmt(t.cash)+'</td></tr><tr><td>เก็บหนี้เก่า</td><td>'+fmt(t.debt)+'</td></tr>'
     + '<tr><td>ค้างใหม่วันนี้</td><td>'+fmt(t.owed)+'</td></tr><tr><td>ค่าน้ำมัน+แก๊ส</td><td>'+fmt(t.fuel+t.gas)+'</td></tr>'
     + '<tr><td>ส่งเงิน (ยอดขาย)</td><td>'+fmt(t.send)+'</td></tr>'
     + (t.deduct ? '<tr><td>หักค่ากระสอบค้างส่ง</td><td>'+fmt(t.deduct)+'</td></tr>' : '')
-    + '<tr><th>เงินสดที่ต้องส่ง</th><th>'+fmt(t.deposit)+'</th></tr>'+lyRows
+    + '<tr><th>เงินสดที่ต้องส่ง</th><th>'+fmt(t.deposit)+'</th></tr>'
+    + '<tr><td>เงินสดที่นับได้จริง</td><td>'+(t.counted==null?'-':fmt(t.counted))+'</td></tr>'
+    + '<tr><th>ส่วนต่างเงิน</th><th>'+(t.cashDiff==null?'-':t.cashDiff?(t.cashDiff<0?'ขาด ':'เกิน ')+fmt(Math.abs(t.cashDiff)):'ตรง')+'</th></tr>'+lyRows
     + '<tr><td>คอมมิชชั่น 5% ÷ '+n+' คน</td><td>'+fmt(Math.round(t.send*0.05/n))+' /คน</td></tr></table>'
     + '<table><tr><th colspan="2">กระสอบ</th></tr><tr><td>ค้างยกมา</td><td>'+fmt(sackCarry)+'</td></tr>'
     + '<tr><td>ค้างเพิ่มวันนี้</td><td>'+fmt(day.sackAdd)+'</td></tr>'
@@ -911,8 +921,7 @@ function reportHTML(){
     + '</div></div>'
     + '<table><tr><th colspan="7">รายละเอียดการซื้อรายลูกค้า</th></tr>'
     + '<tr><th>ลูกค้า</th><th>รายการ</th><th>ยอด</th><th>จ่าย</th><th>ชำระหนี้เก่า</th><th>ค้าง</th><th>การจ่าย</th></tr>'+detail+'</table>'
-    + '<div class="sub" style="margin-top:6px">'+(day.sendMethod==='โอนเข้าบัญชี'?'* แนบใบนำฝากธนาคารมากับรายงานนี้':'')+'</div>'
-    + '<div class="sign"><div>ลงชื่อพนักงานขาย</div><div>ลงชื่อพนักงานโรงกระสอบ<br>(ยืนยันจำนวนกระสอบคืน)</div><div>ผู้รับเงิน</div></div>';
+    + '<div class="sign"><div>ลงชื่อพนักงานขาย</div><div>ผู้ตรวจรับของคืน + กระสอบ</div><div>ผู้รับเงิน</div></div>';
 }
 // กลไกพิมพ์เวอร์ชัน 31 กค. — เปิดหน้าเอกสารแยก (popup ก่อน, iframe fallback ถ้าโดนบล็อก)
 // เนื้อรายงานใช้ reportHTML() ปัจจุบัน (มีหักค่ากระสอบ + ป้าย (ก้อน) ครบ)

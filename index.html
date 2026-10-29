@@ -139,6 +139,7 @@
   table.mini { width:100%; border-collapse:collapse; font-size:14px; }
   .mini th, .mini td { padding:6px 3px; text-align:right; border-bottom:1px dashed var(--line); font-variant-numeric:tabular-nums; }
   .mini th { font-size:11px; color:var(--muted); font-weight:500; }
+  .mini .stk { width:48px; text-align:right; padding:4px; font-size:14px; }
   .mini th:first-child, .mini td:first-child { text-align:left; }
   .hint { font-size:11px; color:var(--muted); margin:8px 0 0; }
   .sackline { display:flex; justify-content:space-between; padding:4px 0; font-size:14px; }
@@ -301,29 +302,27 @@
     <section class="screen" id="scr-close">
       <div class="card"><h2>พนักงานที่ไปวันนี้</h2><div id="empPick"></div></div>
       <div class="card">
-        <h2>เบิก · ขาย · กรอก · คืน</h2>
+        <h2>ของวันนี้ · ต้องลงตัว</h2>
         <div class="row" style="margin-bottom:8px">
-          <button class="btn btn-ghost" style="padding:8px" onclick="loadWithdraw();loadSackRet()">⟳ รีเฟรชตอนนี้</button>
+          <button class="btn btn-ghost" style="padding:8px" onclick="loadWithdraw();loadSackRet()">⟳ ดึงยอดเบิกร้าน</button>
           <span class="note" id="wdStatus" style="flex:2"></span>
         </div>
         <table class="mini" id="stockTbl"></table>
-        <p class="hint">กรอก = เติมชดเชยน้ำแข็งที่ละลายให้เต็มพร้อมขาย · เบิก = ขาย + กรอก + คืน</p>
+        <p class="note" id="stockNote" style="color:var(--red)"></p>
+        <p class="hint">ซื้อโรงงาน = ตามใบเสร็จโรงงาน · คืนร้าน = ของเหลือที่นับคืนตอนเย็น · ซื้อ + เบิก − ขาย − คืน ต้องได้ 0</p>
       </div>
       <div class="card">
         <h2>ย้อนหลัง — วางแผนของขึ้นรถ</h2>
         <div id="histBox"><p class="note">กำลังดึง…</p></div>
         <p class="hint">ยอดขายจริงของสายนี้ (รวมทุกเครื่องในสาย) · เก็บไว้ประมาณ 10 วันล่าสุด</p>
       </div>
-      <div class="card hidden" id="vehCard">
-        <h2>รถวันนี้ <small style="color:var(--muted);font-weight:400">· ส่งเข้าสมุดประจำรถ</small></h2>
-        <select id="vehSel" onchange="setPlate(this.value)"></select>
-        <div id="vehFields">
-          <div class="row"><div><label>ไมล์ออก</label><input type="number" min="0" step="any" id="inStartKm" inputmode="decimal" oninput="setVeh('startKm',this.value)"></div>
-            <div><label>ไมล์กลับ</label><input type="number" min="0" step="any" id="inEndKm" inputmode="decimal" oninput="setVeh('endKm',this.value)"></div></div>
-          <div class="totline"><span>ระยะทาง</span><b id="vehDist">–</b></div>
-          <label>น้ำมันที่เติม (ลิตร)</label><input type="number" min="0" step="any" id="inLiters" inputmode="decimal" oninput="setVeh('liters',this.value)">
-          <p class="hint">ใส่<b>จำนวนลิตร</b> (ไม่ใช่บาท) · ไมล์ออกเติมให้จากไมล์ล่าสุดของรถ · ค่าน้ำมัน/แก๊ส (บาท) กรอกในการ์ด "เงิน"</p>
-        </div>
+      <div class="card" id="vehCard">
+        <h2>รถวันนี้</h2>
+        <div class="row"><div><label>ไมล์ออก</label><input type="number" min="0" step="any" id="inStartKm" inputmode="decimal" oninput="setVeh('startKm',this.value)"></div>
+          <div><label>ไมล์กลับ</label><input type="number" min="0" step="any" id="inEndKm" inputmode="decimal" oninput="setVeh('endKm',this.value)"></div></div>
+        <div class="totline"><span>ระยะทาง</span><b id="vehDist">–</b></div>
+        <label>น้ำมันที่เติม (ลิตร)</label><input type="number" min="0" step="any" id="inLiters" inputmode="decimal" oninput="setVeh('liters',this.value)">
+        <p class="hint">ใส่<b>จำนวนลิตร</b> (ไม่ใช่บาท) · ไมล์ออกเติมให้จากไมล์กลับครั้งล่าสุด · ค่าน้ำมัน/แก๊ส (บาท) กรอกในการ์ด "เงิน"</p>
       </div>
       <div class="card">
         <h2>เงิน</h2>
@@ -339,18 +338,18 @@
           <div class="totline"><span>หักค่ากระสอบค้างส่ง <small style="color:var(--muted)">(แอดมินกำหนด)</small></span><b id="sackDeductAmt" style="color:var(--red)">0</b></div>
         </div>
         <div class="totline big"><span>ยอดเงินสดที่ต้องส่ง</span><span class="big-num" id="tDeposit">0</span></div>
-        <label>ช่องทางส่งเงิน</label>
-        <div class="seg" id="paySeg"><button class="on" onclick="setSendMethod('โอนเข้าบัญชี')">โอนเข้าบัญชี</button><button onclick="setSendMethod('เงินสด')">เงินสด</button></div>
-        <p class="hint" id="payHint">โอนแล้วแนบใบนำฝากมากับใบรายงาน A4</p>
+        <label>เงินสดที่นับได้จริง</label>
+        <input type="number" min="0" id="inCashCount" inputmode="numeric" oninput="setCashCount(this.value)">
+        <div class="totline"><span>ส่วนต่าง</span><b id="tCashDiff">ยังไม่ได้นับ</b></div>
       </div>
       <div class="card">
         <h2>กระสอบ</h2>
         <div class="row"><div><label>ค้างเพิ่มวันนี้ (อัตโนมัติ)</label><input type="number" min="0" id="inSackAdd" inputmode="numeric" readonly tabindex="-1" style="background:var(--cream)"></div>
-          <div><label>คืน — โรงงานรับไว้ (อัตโนมัติ)</label><input type="number" min="0" id="inSackRet" inputmode="numeric" readonly tabindex="-1" style="background:var(--cream)"></div></div>
+          <div><label>คืนวันนี้ (นับจริง)</label><input type="number" min="0" id="inSackRet" inputmode="numeric" oninput="setSackRet(this.value)"></div></div>
         <div class="sackline"><span>ค้างยกมา</span><b id="sackCarry">0</b></div>
         <div class="sackline"><span>ค้างสุทธิวันนี้</span><b id="sackNet">0</b></div>
         <div class="sackline tot"><span>ค้างสะสมรวม</span><b id="sackTotal">0</b></div>
-        <p class="hint">ค้างเพิ่ม = หลอดใหญ่ + หลอดเล็ก + โม่ + (ซอง×6) · คืนดึงจากบันทึกโรงงาน (facdata)</p>
+        <p class="hint">ค้างเพิ่ม = หลอดใหญ่ + หลอดเล็ก + โม่ ที่ขายวันนี้ · คืน = กระสอบที่เก็บกลับมาจากลูกค้า</p>
       </div>
       <button class="btn btn-gold" onclick="submitDay(this)">✓ ปิดวัน / ส่งรายงาน</button>
       <div style="height:9px"></div>
