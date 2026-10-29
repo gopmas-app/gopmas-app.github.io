@@ -297,7 +297,7 @@ function refreshMaster(silent){
 // ================= day state =================
 // tomb = บิลที่ลบไปแล้ว {ชื่อลูกค้า:เวลา} — ต้องเก็บไว้ ไม่งั้น sync จะดึงบิลที่ลบแล้วกลับมาจากเครื่องบัดดี้
 // buy = ซื้อจากโรงงาน (ตามใบเสร็จ) · withdraw = เบิกจากหน้าร้าน (ดึงจากชีต) · ret = ของเหลือคืนเข้าร้านตอนเย็น
-function newDay(){ return { date:todayStr(), entries:{}, tomb:{}, employees:[], withdraw:{}, buy:{}, ret:{}, cashCount:'',
+function newDay(){ return { date:todayStr(), entries:{}, tomb:{}, employees:[], withdraw:{}, buy:{}, ret:{},
   fuel:'', gas:'', liters:'', startKm:'', endKm:'', sackAdd:'', sackRet:'', sackCarry:0, sackDeductOn:false, sackDeduct:0 }; }
 function saveDay(){ save(LS.day(day.date), day); scheduleHeartbeat(); }
 
@@ -443,11 +443,8 @@ function totals(){
   var send = cash+debt-fuel-gas;  // ยอดขาย = ฐานคอม = คอลัมน์ I — ห้ามบวกค่าหักกระสอบเข้าตัวนี้
   // ค่าหักกระสอบเพิ่ม "เงินสดที่ต้องวาง" (deposit) เท่านั้น ไม่เข้า send/คอม/คอลัมน์ I
   var deduct = (day && day.sackDeductOn) ? (Number(day.sackDeduct)||0) : 0;
-  // กันทุจริต: เงินที่นับได้จริง − ที่ต้องส่ง (ว่าง = ยังไม่นับ)
-  var counted = day && day.cashCount!=='' && day.cashCount!=null ? Number(day.cashCount)||0 : null;
   return { cash:cash, debt:debt, owed:owed, sold:sold, fuel:fuel, gas:gas,
-           send:send, deduct:deduct, deposit:send+deduct,
-           counted:counted, cashDiff: counted==null ? null : counted-(send+deduct) };
+           send:send, deduct:deduct, deposit:send+deduct };
 }
 // กันทุจริต: ของต้องลงตัว — ซื้อโรงงาน + เบิกร้าน − ขาย − คืนร้าน = 0 (รถเริ่มวันที่ 0 เพราะเย็นคืนของเข้าร้านหมด)
 // diff > 0 = ของขาด (หายไปโดยไม่มีบิล) · diff < 0 = ขายเกินของที่มี (บิลผิด/ไม่ได้บันทึกของเข้า)
@@ -460,7 +457,6 @@ function stockRows(){
 }
 function diffLabel(d){ return d>0 ? 'ขาด '+fmt(d) : d<0 ? 'เกิน '+fmt(-d) : '✓'; }
 function setStock(k, pid, v){ day[k][pid]=v; saveDay(); renderSummary(); }
-function setCashCount(v){ day.cashCount=v; saveDay(); renderSummary(); }
 function setFuelGas(k, v){ day[k]=v; renderSummary(); }  // ต้นเหตุบั๊กเดิม: renderSummary เคยอ่าน input ทับ day ทำให้ค่าหายตอน reload
 function renderSummary(){
   var t = totals();
@@ -493,9 +489,6 @@ function renderSummary(){
   $('stockNote').textContent = srows.some(function(r){ return r.diff; }) ? 'ของไม่ลงตัว — ตรวจใบเสร็จโรงงาน / บิล / ของเหลืออีกครั้ง' : '';
   $('tCash').textContent=fmt(t.cash); $('tDebt').textContent=fmt(t.debt); $('tOwed').textContent=fmt(t.owed);
   $('tSend').textContent=fmt(t.send); $('tDeposit').textContent=fmt(t.deposit);
-  if (document.activeElement!==$('inCashCount')) $('inCashCount').value = day.cashCount;
-  $('tCashDiff').textContent = t.cashDiff==null ? 'ยังไม่ได้นับ' : t.cashDiff ? (t.cashDiff<0?'ขาด ':'เกิน ')+fmt(Math.abs(t.cashDiff)) : '✓ ตรง';
-  $('tCashDiff').style.color = t.cashDiff ? 'var(--red)' : t.cashDiff===0 ? 'var(--green)' : 'var(--muted)';
   var n = day.employees.length||1;
   $('tComm').textContent = fmt(Math.round(t.send*0.05/n))+' /คน ('+n+' คน)';
   // หักค่ากระสอบค้างส่ง — แอดมินกำหนดต่อสาย พนักงานแก้ไม่ได้ · โผล่เมื่อมีค่าหัก (>0)
@@ -625,7 +618,7 @@ function buildPayload(){
   return { action:'submit',
     date:day.date, line:session.line, employees:day.employees,
     sold:t.sold, moneySent:t.send, fuelTotal:t.fuel+t.gas, cash:t.cash, owed:t.owed, debtPaid:t.debt,
-    customers:Object.keys(day.entries).length, cashCount:t.counted, cashDiff:t.cashDiff, stock:stockRows(),
+    customers:Object.keys(day.entries).length, stock:stockRows(),
     startKm:day.startKm||'', endKm:day.endKm||'', fuel:t.fuel, gas:t.gas, liters:day.liters||'',
     sackAdd:Number(day.sackAdd)||0, sackRet:Number(day.sackRet)||0, sackDeduct:t.deduct };
     // ไม่ส่งรายบิลรายลูกค้า — หนี้บันทึกเป็นยอดรวมสาย/วันฝั่ง server, รายละเอียดอยู่ในใบ A4
@@ -635,12 +628,11 @@ function submitDay(btn){
   if (!Object.keys(day.entries).length){ toast('ยังไม่มีรายการขาย'); return; }
   var vp = vehicleProblem(); if (vp){ toast(vp); $('vehCard').scrollIntoView({behavior:'smooth', block:'center'}); return; }
   var t = totals();
-  if (t.counted==null){ toast('นับเงินสดแล้วกรอก "เงินสดที่นับได้จริง" ก่อน'); $('inCashCount').focus(); return; }
   if (day.closed){ toast('ปิดวันนี้ส่งไปแล้ว — กด "แก้ไขรายงานที่ส่งแล้ว" ถ้าต้องแก้'); syncQueue(); return; }
-  // ของ/เงินไม่ลงตัว ยังปิดวันได้ (น้ำแข็งแตก/ละลายมีจริง) แต่ต้องเห็นก่อนยืนยัน และเจ้าของเห็นในชีต
+  // ของไม่ลงตัว ยังปิดวันได้ (น้ำแข็งแตก/ละลายมีจริง) แต่ต้องเห็นก่อนยืนยัน และเจ้าของเห็นในชีต
   var off = stockRows().filter(function(r){ return r.diff; }).length;
-  var warn = (off ? 'ของไม่ลงตัว '+off+' รายการ · ' : '') + (t.cashDiff ? 'เงิน'+(t.cashDiff<0?'ขาด ':'เกิน ')+fmt(Math.abs(t.cashDiff))+' · ' : '');
-  arm(btn, 'แตะอีกครั้ง · '+warn+'ยืนยันส่งเงิน '+fmt(t.counted)+' บาท', function(){
+  var warn = (off ? 'ของไม่ลงตัว '+off+' รายการ · ' : '');
+  arm(btn, 'แตะอีกครั้ง · '+warn+'ยืนยันส่งเงิน '+fmt(t.deposit)+' บาท', function(){
     var q = load(LS.queue,[]); q.push(buildPayload()); save(LS.queue,q);
     day.closed = true; save(LS.day(day.date), day);  // heartbeat หลังจากนี้ต้องไม่ทับสถานะ closed
     showEl('amendBtn', true);
@@ -911,8 +903,7 @@ function reportHTML(){
     + '<tr><td>ส่งเงิน (ยอดขาย)</td><td>'+fmt(t.send)+'</td></tr>'
     + (t.deduct ? '<tr><td>หักค่ากระสอบค้างส่ง</td><td>'+fmt(t.deduct)+'</td></tr>' : '')
     + '<tr><th>เงินสดที่ต้องส่ง</th><th>'+fmt(t.deposit)+'</th></tr>'
-    + '<tr><td>เงินสดที่นับได้จริง</td><td>'+(t.counted==null?'-':fmt(t.counted))+'</td></tr>'
-    + '<tr><th>ส่วนต่างเงิน</th><th>'+(t.cashDiff==null?'-':t.cashDiff?(t.cashDiff<0?'ขาด ':'เกิน ')+fmt(Math.abs(t.cashDiff)):'ตรง')+'</th></tr>'+lyRows
+    + lyRows
     + '<tr><td>คอมมิชชั่น 5% ÷ '+n+' คน</td><td>'+fmt(Math.round(t.send*0.05/n))+' /คน</td></tr></table>'
     + '<table><tr><th colspan="2">กระสอบ</th></tr><tr><td>ค้างยกมา</td><td>'+fmt(sackCarry)+'</td></tr>'
     + '<tr><td>ค้างเพิ่มวันนี้</td><td>'+fmt(day.sackAdd)+'</td></tr>'
