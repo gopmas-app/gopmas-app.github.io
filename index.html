@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#B08D2E">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="icon" type="image/png" href="parrot.png">  <!-- ต้องประกาศเอง: โดเมน tongo51.github.io ใช้ร่วมกับ TSM ไม่ประกาศ เบราว์เซอร์จะหยิบไอคอนพวงมาลัยของ TSM มาใช้ -->
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="manifest" href="manifest.webmanifest">
+<title>GoPMaS POS</title>
+<style>
+  :root {
+    --cream:#FAF6EC; --card:#FFF; --ink:#2B2415; --muted:#8A7F65; --line:#E8DFC8;
+    --gold:#B08D2E; --gold-lite:#C7A33B; --gold-dark:#8C6F1F; --frost:#4C93A6; --frost-soft:#E4F0F2;
+    --green:#3E7C4F; --red:#B3402E; --amber:#C08A2E;
+  }
+  /* ธีมสี — override เฉพาะโทนหลัก+พื้น ส่วนสีสถานะ (แดง/เขียว/เหลือง) คงเดิมเพื่อความหมายที่คงที่ */
+  [data-theme="blue"]   { --cream:#EFF4FA; --line:#D7E2EF; --muted:#6E7E92; --ink:#1D2733;
+    --gold:#33699E; --gold-lite:#5487B8; --gold-dark:#27527C; }
+  [data-theme="purple"] { --cream:#F5F1FA; --line:#E2D9EF; --muted:#7E7292; --ink:#291F33;
+    --gold:#7551A8; --gold-lite:#9273BE; --gold-dark:#5C3F86; }
+  [data-theme="green"]  { --cream:#EFF6F0; --line:#D6E6DA; --muted:#6C8272; --ink:#1E2B21;
+    --gold:#3B7D53; --gold-lite:#5C9973; --gold-dark:#2E6241; }
+  [data-theme="orange"] { --cream:#FBF2E9; --line:#F0DFC9; --muted:#93795F; --ink:#33240F;
+    --gold:#C0722A; --gold-lite:#D48F4C; --gold-dark:#995A1F; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html, body { margin:0; height:100%; overflow-x:hidden; }
+  body {
+    font-family:'Prompt','Sukhumvit Set','Leelawadee UI','Noto Sans Thai',system-ui,sans-serif;
+    background:var(--cream); color:var(--ink); font-size:16px;
+  }
+  .hidden { display:none !important; }
+  input, select, button { font-family:inherit; }
+  .app { padding-bottom:calc(66px + env(safe-area-inset-bottom)); }
+
+  header {
+    position:sticky; top:0; z-index:5; background:var(--cream); padding:14px 16px 10px;
+    border-bottom:1px solid var(--line); display:flex; align-items:center; gap:10px;
+  }
+  header h1 { font-size:17px; font-weight:600; margin:0; flex:1; }
+  header h1 small { color:var(--gold-dark); font-weight:500; }
+  .chip { font-size:12px; padding:4px 10px; border-radius:99px; border:1px solid var(--line); background:var(--card); color:var(--muted); white-space:nowrap; display:inline-flex; gap:5px; align-items:center; cursor:pointer; }
+  .chip.ok { color:var(--frost); border-color:color-mix(in srgb,var(--frost) 40%,transparent); background:var(--frost-soft); }
+  .chip.wait { color:var(--amber); border-color:var(--amber); }
+  .chip.bad { color:var(--red); border-color:var(--red); }
+  .dot { width:7px; height:7px; border-radius:99px; background:currentColor; }
+
+  main { padding:12px 16px; max-width:600px; margin:0 auto; }
+  .screen { display:none; } .screen.active { display:block; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px 16px; margin-bottom:12px; }
+  .card h2 { font-size:13px; letter-spacing:.08em; text-transform:uppercase; color:var(--gold-dark); margin:0 0 10px; font-weight:600; }
+  label { display:block; font-size:13px; color:var(--muted); margin:10px 0 4px; }
+  input[type=text], input[type=number], input[type=password], select {
+    width:100%; padding:10px 12px; font-size:16px; border:1px solid var(--line); border-radius:10px; background:#fff; color:var(--ink);
+  }
+  input:focus, select:focus { outline:2px solid var(--gold); border-color:var(--gold); }
+  .btn { border:none; border-radius:12px; padding:12px 16px; font-size:16px; font-weight:600; cursor:pointer; width:100%; }
+  .btn-gold { background:linear-gradient(160deg,var(--gold-lite),var(--gold)); color:#fff; }
+  .btn-frost { background:var(--frost); color:#fff; }
+  .btn-ghost { background:transparent; border:1px solid var(--line); color:var(--ink); font-weight:500; }
+  .row { display:flex; gap:10px; } .row>* { flex:1; }
+  .note { font-size:13px; color:var(--muted); } .warn { color:var(--red); font-size:13px; }
+
+  /* ---------- login ---------- */
+  #login { min-height:100vh; display:flex; flex-direction:column; justify-content:center; padding:24px 22px calc(24px + env(safe-area-inset-bottom)); max-width:440px; margin:0 auto; }
+  .logo { width:76px; height:76px; border-radius:22px; background:var(--card); border:1px solid var(--line); display:grid; place-items:center; margin:0 auto 14px; box-shadow:0 10px 30px rgba(43,36,21,.10); }
+  #login h1 { text-align:center; font-size:24px; margin:0; }
+  #login .tag { text-align:center; color:var(--muted); font-size:13px; margin:4px 0 22px; }
+  .who { display:flex; align-items:center; gap:12px; background:var(--card); border:1px solid var(--line); border-radius:16px; padding:12px 14px; }
+  .who .av { width:42px; height:42px; border-radius:99px; background:var(--frost-soft); color:var(--frost); display:grid; place-items:center; font-weight:700; }
+  .who .nm { font-weight:600; } .who .ln { font-size:12px; color:var(--muted); }
+  .who .chg { margin-left:auto; font-size:12px; color:var(--gold-dark); border:1px solid var(--line); border-radius:99px; padding:6px 11px; background:var(--cream); cursor:pointer; }
+  .linechip { display:inline-flex; align-items:center; gap:5px; background:var(--frost-soft); color:var(--frost); font-weight:600; padding:2px 8px; border-radius:8px; font-size:12px; }
+  .pin { display:flex; justify-content:center; gap:12px; margin:22px 0 16px; }
+  .pin i { width:15px; height:15px; border-radius:99px; border:2px solid var(--line); }
+  .pin i.f { background:var(--gold); border-color:var(--gold); }
+  .keys { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+  .keys button { padding:15px 0; font-size:22px; font-weight:600; border:1px solid var(--line); border-radius:14px; background:var(--card); color:var(--ink); cursor:pointer; font-variant-numeric:tabular-nums; }
+  .keys button:active { background:var(--gold); color:#fff; }
+  .keys button.blank { border:0; background:none; cursor:default; }
+  .adminlink { text-align:center; margin-top:16px; font-size:13px; color:var(--frost); background:none; border:0; cursor:pointer; width:100%; }
+  .picker { max-height:46vh; overflow-y:auto; margin-top:8px; }
+  .picker button { display:flex; width:100%; text-align:left; gap:10px; align-items:center; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:11px 13px; margin-bottom:8px; cursor:pointer; }
+  .picker button .av { width:34px; height:34px; border-radius:99px; background:var(--frost-soft); color:var(--frost); display:grid; place-items:center; font-weight:700; font-size:14px; }
+  .picker button .nm { font-weight:500; } .picker button small { color:var(--muted); }
+  .loginerr { color:var(--red); text-align:center; font-size:13px; min-height:18px; margin-top:8px; }
+
+  /* ---------- challenge ---------- */
+  .challenge { background:linear-gradient(135deg,var(--frost-soft),var(--card)); border:1px solid color-mix(in srgb,var(--frost) 35%,var(--line)); border-radius:16px; padding:13px 15px; margin-bottom:12px; position:relative; overflow:hidden; }
+  .challenge::after { content:"🏆"; position:absolute; right:12px; top:10px; font-size:22px; opacity:.5; }
+  .challenge .eb { font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--frost); font-weight:700; }
+  .challenge .amt { font-size:25px; font-weight:700; font-variant-numeric:tabular-nums; color:var(--gold-dark); line-height:1.15; }
+  .challenge .amt small { font-size:12px; color:var(--muted); font-weight:400; }
+  .challenge .prods { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+  .challenge .prods span { font-size:11px; background:var(--card); border:1px solid var(--line); border-radius:7px; padding:2px 8px; font-variant-numeric:tabular-nums; }
+  .challenge .bar { height:6px; border-radius:99px; background:var(--line); margin-top:9px; overflow:hidden; }
+  .challenge .bar i { display:block; height:100%; background:linear-gradient(90deg,var(--frost),var(--gold)); border-radius:99px; }
+  .challenge .now { font-size:11px; color:var(--muted); margin-top:4px; display:flex; justify-content:space-between; }
+
+  /* ---------- customers ---------- */
+  #search { margin-bottom:10px; }
+  .cust { display:flex; align-items:center; gap:11px; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:11px 13px; margin-bottom:8px; cursor:pointer; }
+  .cust .ord { width:24px; height:24px; border-radius:99px; background:var(--cream); color:var(--muted); font-size:12px; display:grid; place-items:center; font-variant-numeric:tabular-nums; flex:none; }
+  .cust .nm { flex:1; font-weight:500; }
+  .cust .usual { font-size:11px; color:var(--muted); }
+  .cust .amt { font-weight:700; font-variant-numeric:tabular-nums; }
+  .cust .amt.g { color:var(--green); } .cust .amt.o { color:var(--red); } .cust .amt.m { color:var(--muted); font-weight:400; }
+  .cust.done { background:color-mix(in srgb,var(--gold) 7%,var(--card)); border-color:color-mix(in srgb,var(--gold) 35%,var(--line)); }
+  .cust.done .ord { background:var(--gold); color:#fff; }
+
+  /* ---------- modal ---------- */
+  #modal { display:none; position:fixed; inset:0; z-index:20; background:rgba(43,36,21,.45); }
+  #modal.open { display:flex; align-items:flex-end; justify-content:center; }
+  #modal .sheet { background:var(--cream); width:100%; max-width:600px; max-height:94vh; overflow-y:auto; overflow-x:hidden; border-radius:20px 20px 0 0; padding:16px 16px calc(16px + env(safe-area-inset-bottom)); }
+  .prod-row { display:flex; align-items:center; gap:10px; padding:9px 0; border-bottom:1px dashed var(--line); }
+  .prod-row .pn { flex:1; min-width:90px; }
+  .prod-row .pn small { color:var(--muted); display:block; font-size:12px; }
+  .prod-row .pn .tag { font-size:10px; color:var(--frost); background:var(--frost-soft); padding:1px 6px; border-radius:6px; margin-left:6px; }
+  .qty { display:flex; align-items:center; gap:8px; flex:none; }
+  .qty button { width:44px; height:44px; font-size:20px; border-radius:11px; background:#fff; border:1px solid var(--line); color:var(--gold-dark); }
+  .qty input { width:60px; text-align:center; font-size:18px; font-weight:700; height:44px; flex:none; font-variant-numeric:tabular-nums; }
+  .addbtn { width:100%; border:1px dashed var(--gold); background:color-mix(in srgb,var(--gold) 6%,transparent); color:var(--gold-dark); border-radius:12px; padding:11px; font-size:14px; font-weight:600; cursor:pointer; margin:12px 0; }
+  .extra { display:none; } .extra.show { display:block; }
+  .seg { display:flex; border:1px solid var(--line); border-radius:11px; overflow:hidden; margin-top:4px; }
+  .seg button { flex:1; padding:11px; border:0; background:#fff; color:var(--muted); font-size:15px; cursor:pointer; }
+  .seg button.on { background:var(--gold); color:#fff; font-weight:600; }
+  .totline { display:flex; justify-content:space-between; padding:5px 0; font-size:15px; }
+  .totline b { font-variant-numeric:tabular-nums; }
+  .totline.big { border-top:1px solid var(--line); margin-top:8px; padding-top:10px; font-size:17px; }
+
+  /* ---------- tables ---------- */
+  table.mini { width:100%; border-collapse:collapse; font-size:14px; }
+  .mini th, .mini td { padding:6px 3px; text-align:right; border-bottom:1px dashed var(--line); font-variant-numeric:tabular-nums; }
+  .mini th { font-size:11px; color:var(--muted); font-weight:500; }
+  .mini th:first-child, .mini td:first-child { text-align:left; }
+  .hint { font-size:11px; color:var(--muted); margin:8px 0 0; }
+  .sackline { display:flex; justify-content:space-between; padding:4px 0; font-size:14px; }
+  .sackline.tot { border-top:1px solid var(--line); margin-top:6px; padding-top:8px; font-weight:600; }
+  .sackline .warnv { color:var(--red); font-weight:700; font-variant-numeric:tabular-nums; }
+  .emp-tag { display:inline-block; padding:6px 14px; margin:3px 4px 3px 0; border-radius:99px; border:1px solid var(--line); background:#fff; font-size:14px; cursor:pointer; }
+  .emp-tag.on { background:var(--gold); color:#fff; border-color:var(--gold); }
+  .big-num { font-size:24px; font-weight:700; color:var(--gold-dark); font-variant-numeric:tabular-nums; }
+
+  /* ---------- admin monitor ---------- */
+  .mon-head { display:flex; gap:10px; margin-bottom:12px; }
+  .kpi { flex:1; background:var(--card); border:1px solid var(--line); border-radius:14px; padding:11px 12px; }
+  .kpi .k { font-size:11px; color:var(--muted); } .kpi .v { font-size:20px; font-weight:700; font-variant-numeric:tabular-nums; margin-top:2px; } .kpi .v.frost { color:var(--frost); }
+  .lineitem { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:12px 13px; margin-bottom:9px; }
+  .lineitem .h { display:flex; align-items:center; gap:9px; margin-bottom:8px; }
+  .lineitem .badge { width:34px; height:34px; border-radius:10px; background:var(--cream); color:var(--gold-dark); font-weight:700; display:grid; place-items:center; font-size:13px; font-variant-numeric:tabular-nums; }
+  .lineitem .who2 { flex:1; } .lineitem .who2 b { font-size:14px; } .lineitem .who2 small { display:block; color:var(--muted); font-size:11px; }
+  .lineitem .foot { display:flex; justify-content:space-between; align-items:center; margin-top:6px; font-size:12px; }
+  .lineitem .money { font-weight:700; font-variant-numeric:tabular-nums; font-size:15px; }
+  .synced { color:var(--frost); } .stale { color:var(--amber); } .offline { color:var(--muted); } .unsent { color:var(--red); font-weight:600; }
+  .lineitem.idle { opacity:.55; }
+  .lineitem .avs { display:flex; }
+  .lineitem .avs .av2 { width:26px; height:26px; border-radius:99px; border:2px solid var(--card);
+    background:var(--frost-soft); color:var(--frost); font-size:11px; font-weight:700;
+    display:grid; place-items:center; margin-left:-7px; overflow:hidden; }
+  .lineitem .avs .av2:first-child { margin-left:0; }
+  .lineitem .avs .av2 img { width:100%; height:100%; object-fit:cover; }
+  .prog { margin-top:4px; }
+  .prog .pl { display:flex; justify-content:space-between; font-size:11px; color:var(--muted); margin-bottom:3px; font-variant-numeric:tabular-nums; }
+  .prog .bar { height:7px; border-radius:99px; background:var(--cream); overflow:hidden; }
+  .prog .bar i { display:block; height:100%; border-radius:99px; background:linear-gradient(90deg,var(--frost),var(--gold)); transition:width .5s; }
+  .soldbars { margin-top:8px; display:grid; gap:4px; }
+  .soldbars .sb { display:grid; grid-template-columns:64px 1fr 34px; align-items:center; gap:7px; font-size:11px; }
+  .soldbars .sb .n { color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .soldbars .sb .t { height:6px; border-radius:99px; background:var(--cream); overflow:hidden; }
+  .soldbars .sb .t i { display:block; height:100%; border-radius:99px; background:var(--gold-lite); }
+  .soldbars .sb .q { text-align:right; font-weight:600; font-variant-numeric:tabular-nums; }
+  .sumtab .sr { display:grid; grid-template-columns:1fr 62px 62px 54px; gap:6px; align-items:center; font-size:13px;
+                padding:6px 0; border-top:1px solid var(--line); font-variant-numeric:tabular-nums; }
+  .sumtab .sr span:not(:first-child) { text-align:right; }
+  .sumtab .sr.hd { border-top:0; font-size:11px; color:var(--muted); }
+  .sumtab .sr .q { font-weight:700; }
+  .sumtab .sr .o { color:var(--muted); }
+  .sumtab .sr .d.up { color:var(--green); } .sumtab .sr .d.down { color:var(--red); }
+
+  /* ---------- nav ---------- */
+  nav { position:fixed; bottom:0; left:0; right:0; z-index:10; display:flex; background:var(--card); border-top:1px solid var(--line); padding-bottom:env(safe-area-inset-bottom); }
+  nav button { flex:1; background:none; border:0; padding:10px 0 8px; font-size:12px; color:var(--muted); cursor:pointer; }
+  nav button .ic { display:block; font-size:20px; margin-bottom:2px; }
+  nav button.on { color:var(--gold-dark); font-weight:600; }
+
+  #report { display:none; }
+
+  /* ---------- toast (แทน alert) ---------- */
+  #toast { position:fixed; left:50%; bottom:calc(76px + env(safe-area-inset-bottom)); transform:translate(-50%,10px);
+    background:var(--ink); color:var(--cream); padding:10px 18px; border-radius:99px; font-size:14px;
+    opacity:0; pointer-events:none; transition:opacity .25s, transform .25s; z-index:30;
+    max-width:86vw; text-align:center; box-shadow:0 8px 24px rgba(43,36,21,.25); }
+  #toast.show { opacity:1; transform:translate(-50%,0); }
+</style>
+</head>
+<body>
+
+<!-- ========== LOGIN ========== -->
+<section id="login">
+  <div class="logo">
+    <!-- ถ้ามีไฟล์ parrot.png ในโฟลเดอร์ จะใช้โลโก้จริงอัตโนมัติ ไม่มีก็ใช้เวกเตอร์ -->
+    <img id="logoImg" src="parrot.png" alt="โลโก้ GoPMaS" width="54" height="54"
+         onerror="this.style.display='none';document.getElementById('logoSvg').style.display='block'">
+    <svg id="logoSvg" viewBox="0 0 112 112" width="54" height="54" aria-label="โลโก้นกแก้ว GoPMaS" style="display:none">
+      <g stroke="#A87D12" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round">
+        <path d="M55 48 C42 38 28 30 14 26 C20 33 27 39 33 43 C26 43 19 45 14 49 C21 52 28 53 34 53 C29 56 25 60 23 64 C34 64 46 60 55 56 Z" fill="#D29E26"/>
+        <path d="M48 76 C42 86 36 94 30 100 C40 97 49 91 54 84 Z" fill="#F3C433"/>
+        <path d="M62 44 C50 46 43 58 46 71 C49 84 62 91 72 86 C81 81 83 66 77 56 C73 49 68 44 62 44 Z" fill="#F3C433"/>
+        <circle cx="70" cy="34" r="17" fill="#FFFFFF"/>
+        <path d="M70 17 A17 17 0 0 1 87 34 L70 34 Z" fill="#F3C433"/>
+        <path d="M85 26 C97 26 104 34 102 42 C100 48 92 50 87 46 C89 40 88 32 85 26 Z" fill="#F3C433"/>
+        <path d="M86 45 C92 50 99 50 102 46 C98 54 88 55 83 50 Z" fill="#D29E26"/>
+        <path d="M58 88 L54 97 L63 92 Z" fill="#F3C433"/>
+      </g>
+      <path d="M61 31 Q66 24 72 30" fill="none" stroke="#231A06" stroke-width="3" stroke-linecap="round"/>
+    </svg>
+  </div>
+  <h1>GoPMaS</h1>
+  <div class="tag" id="loginTag">ระบบขายหน้ารถ</div>
+  <div id="installHint" class="note hidden" style="text-align:center;margin:8px 0 14px"></div>
+
+  <!-- ยังไม่รู้ backend: ปกติมากับลิงก์ติดตั้ง ?api= ช่องนี้สำรองไว้วางเอง -->
+  <div id="needCfg" class="hidden">
+    <div class="card">
+      <p class="note">เปิดแอปจาก<b>ลิงก์ติดตั้ง</b>ที่เจ้าของร้านส่งให้ทาง LINE · หรือวาง URL ที่ลงท้าย /exec ด้านล่าง</p>
+      <label>API URL (จาก Apps Script)</label>
+      <input type="text" id="firstUrl" placeholder="https://script.google.com/macros/s/…/exec">
+      <div style="height:10px"></div>
+      <button class="btn btn-gold" onclick="saveFirstUrl()">เชื่อมต่อ</button>
+      <p class="note" id="cfgMsg"></p>
+    </div>
+  </div>
+
+  <!-- ใส่ PIN อย่างเดียว -->
+  <div id="empPin" class="hidden">
+    <div class="tag">ใส่ PIN 4 หลัก</div>
+    <div class="pin" id="pinDots"><i></i><i></i><i></i><i></i></div>
+    <div class="keys" id="pinKeys"></div>
+    <div class="loginerr" id="empErr"></div>
+    <button class="adminlink" onclick="showAdminLogin()">เข้าระบบแอดมิน →</button>
+  </div>
+
+  <!-- PIN ตรงหลายคน → เลือกชื่อ -->
+  <div id="chooseName" class="hidden">
+    <div class="tag">PIN นี้ตรงกันหลายคน — เลือกชื่อของคุณ</div>
+    <div class="picker" id="candList"></div>
+    <button class="adminlink" onclick="backToPin()">← ใส่ PIN ใหม่</button>
+  </div>
+
+  <!-- ยืนยันตัวตน + สายวันนี้ -->
+  <div id="confirmLine" class="hidden">
+    <div class="who">
+      <div class="av" id="pinAv"></div>
+      <div><div class="nm" id="pinName"></div><div class="ln" id="pinLine"></div></div>
+      <button class="chg" onclick="changeLine()">เปลี่ยนสาย</button>
+    </div>
+    <div id="linePick" class="hidden" style="margin-top:10px;text-align:center"></div>
+    <div style="height:16px"></div>
+    <button class="btn btn-gold" onclick="startWork()">เริ่มงาน ❄</button>
+    <button class="adminlink" onclick="backToPin()">← ไม่ใช่ฉัน / ใส่ PIN ใหม่</button>
+  </div>
+
+  <!-- admin login: บัตร RFID / รหัส -->
+  <div id="adminBox" class="hidden">
+    <div class="card">
+      <label>PIN แอดมิน</label>
+      <input type="password" id="admPin" autocomplete="off" placeholder="●●●●●●●●">
+      <div style="height:12px"></div>
+      <button class="btn btn-frost" onclick="doAdminLogin()">เข้าสู่ระบบ</button>
+      <div class="loginerr" id="admErr"></div>
+      <button class="adminlink" onclick="backToPin()">← กลับหน้าพนักงาน</button>
+    </div>
+  </div>
+</section>
+
+<!-- ========== APP ========== -->
+<div class="app hidden" id="app">
+  <header>
+    <img src="parrot.png" alt="" width="26" height="26" style="border-radius:8px">
+    <h1>GoPMaS <small id="hSub"></small></h1>
+    <span class="chip" id="syncChip" onclick="syncQueue()">–</span>
+  </header>
+  <main>
+
+    <!-- ขาย -->
+    <section class="screen active" id="scr-sell">
+      <div id="challenge"></div>
+      <input type="text" id="search" placeholder="🔍 ค้นหาลูกค้า…" oninput="renderCustomers()">
+      <div id="custList"></div>
+      <button class="btn btn-ghost" onclick="openEntry(null)">＋ ลูกค้าจร / นอกรายชื่อ</button>
+    </section>
+
+    <!-- ปิดวัน -->
+    <section class="screen" id="scr-close">
+      <div class="card"><h2>พนักงานที่ไปวันนี้</h2><div id="empPick"></div></div>
+      <div class="card">
+        <h2>เบิก · ขาย · กรอก · คืน</h2>
+        <div class="row" style="margin-bottom:8px">
+          <button class="btn btn-ghost" style="padding:8px" onclick="loadWithdraw();loadSackRet()">⟳ รีเฟรชตอนนี้</button>
+          <span class="note" id="wdStatus" style="flex:2"></span>
+        </div>
+        <table class="mini" id="stockTbl"></table>
+        <p class="hint">กรอก = เติมชดเชยน้ำแข็งที่ละลายให้เต็มพร้อมขาย · เบิก = ขาย + กรอก + คืน</p>
+      </div>
+      <div class="card">
+        <h2>ย้อนหลัง — วางแผนของขึ้นรถ</h2>
+        <div id="histBox"><p class="note">กำลังดึง…</p></div>
+        <p class="hint">ยอดขายจริงของสายนี้ (รวมทุกเครื่องในสาย) · เก็บไว้ประมาณ 10 วันล่าสุด</p>
+      </div>
+      <div class="card hidden" id="vehCard">
+        <h2>รถวันนี้ <small style="color:var(--muted);font-weight:400">· ส่งเข้าสมุดประจำรถ</small></h2>
+        <select id="vehSel" onchange="setPlate(this.value)"></select>
+        <div id="vehFields">
+          <div class="row"><div><label>ไมล์ออก</label><input type="number" min="0" step="any" id="inStartKm" inputmode="decimal" oninput="setVeh('startKm',this.value)"></div>
+            <div><label>ไมล์กลับ</label><input type="number" min="0" step="any" id="inEndKm" inputmode="decimal" oninput="setVeh('endKm',this.value)"></div></div>
+          <div class="totline"><span>ระยะทาง</span><b id="vehDist">–</b></div>
+          <label>น้ำมันที่เติม (ลิตร)</label><input type="number" min="0" step="any" id="inLiters" inputmode="decimal" oninput="setVeh('liters',this.value)">
+          <p class="hint">ใส่<b>จำนวนลิตร</b> (ไม่ใช่บาท) · ไมล์ออกเติมให้จากไมล์ล่าสุดของรถ · ค่าน้ำมัน/แก๊ส (บาท) กรอกในการ์ด "เงิน"</p>
+        </div>
+      </div>
+      <div class="card">
+        <h2>เงิน</h2>
+        <div class="totline"><span>ลูกค้าจ่าย</span><b id="tCash">0</b></div>
+        <div class="totline"><span>เก็บหนี้เก่า</span><b id="tDebt">0</b></div>
+        <div class="totline"><span>ค้างใหม่วันนี้</span><b id="tOwed" style="color:var(--red)">0</b></div>
+        <div class="row"><div><label>เติมน้ำมัน</label><input type="number" min="0" id="inFuel" inputmode="numeric" oninput="setFuelGas('fuel',this.value)"></div>
+          <div><label>เติมแก๊ส</label><input type="number" min="0" id="inGas" inputmode="numeric" oninput="setFuelGas('gas',this.value)"></div></div>
+        <div class="totline"><span>ส่งเงิน (ยอดขาย)</span><b id="tSend">0</b></div>
+        <div class="totline"><span>คอมมิชชั่น 5%</span><b id="tComm">0</b></div>
+        <!-- หักค่ากระสอบค้างส่ง — แอดมินกำหนดต่อสาย พนักงานแก้ไม่ได้ · ไม่เข้าฐานคอม/คอลัมน์ I -->
+        <div id="sackDeductBox" class="hidden" style="border-top:1px solid var(--line);margin-top:8px;padding-top:8px">
+          <div class="totline"><span>หักค่ากระสอบค้างส่ง <small style="color:var(--muted)">(แอดมินกำหนด)</small></span><b id="sackDeductAmt" style="color:var(--red)">0</b></div>
+        </div>
+        <div class="totline big"><span>ยอดเงินสดที่ต้องส่ง</span><span class="big-num" id="tDeposit">0</span></div>
+        <label>ช่องทางส่งเงิน</label>
+        <div class="seg" id="paySeg"><button class="on" onclick="setSendMethod('โอนเข้าบัญชี')">โอนเข้าบัญชี</button><button onclick="setSendMethod('เงินสด')">เงินสด</button></div>
+        <p class="hint" id="payHint">โอนแล้วแนบใบนำฝากมากับใบรายงาน A4</p>
+      </div>
+      <div class="card">
+        <h2>กระสอบ</h2>
+        <div class="row"><div><label>ค้างเพิ่มวันนี้ (อัตโนมัติ)</label><input type="number" min="0" id="inSackAdd" inputmode="numeric" readonly tabindex="-1" style="background:var(--cream)"></div>
+          <div><label>คืน — โรงงานรับไว้ (อัตโนมัติ)</label><input type="number" min="0" id="inSackRet" inputmode="numeric" readonly tabindex="-1" style="background:var(--cream)"></div></div>
+        <div class="sackline"><span>ค้างยกมา</span><b id="sackCarry">0</b></div>
+        <div class="sackline"><span>ค้างสุทธิวันนี้</span><b id="sackNet">0</b></div>
+        <div class="sackline tot"><span>ค้างสะสมรวม</span><b id="sackTotal">0</b></div>
+        <p class="hint">ค้างเพิ่ม = หลอดใหญ่ + หลอดเล็ก + โม่ + (ซอง×6) · คืนดึงจากบันทึกโรงงาน (facdata)</p>
+      </div>
+      <button class="btn btn-gold" onclick="submitDay(this)">✓ ปิดวัน / ส่งรายงาน</button>
+      <div style="height:9px"></div>
+      <button class="btn btn-ghost hidden" id="amendBtn" onclick="amendDay(this)">✎ แก้ไขรายงานที่ส่งแล้ว</button>
+      <div style="height:9px"></div>
+      <button class="btn btn-ghost" onclick="printReport()">🖨 พิมพ์รายงาน A4</button>
+      <p class="note" id="submitNote"></p>
+    </section>
+
+    <!-- มอนิเตอร์ (admin) -->
+    <section class="screen" id="scr-monitor">
+      <div class="mon-head">
+        <div class="kpi"><div class="k">ส่งเงินรวมวันนี้</div><div class="v" id="monTotal">–</div></div>
+        <div class="kpi"><div class="k">สายที่ยังวิ่ง</div><div class="v frost" id="monRunning">–</div></div>
+      </div>
+      <div class="row" style="margin-bottom:12px"><button class="btn btn-ghost" style="padding:8px" onclick="loadMonitor()">⟳ รีเฟรช</button><span class="note" id="monStatus" style="flex:2"></span></div>
+      <div id="monSold"></div>
+      <div id="monList"></div>
+    </section>
+
+    <!-- จัดการสาย (admin) -->
+    <section class="screen" id="scr-lines">
+      <div class="card">
+        <h2>เพิ่มสายใหม่</h2>
+        <div class="row"><div><label>รหัสสาย</label><input type="text" id="lnCode" placeholder="L10"></div>
+          <div style="flex:2"><label>โซน / เส้นทาง</label><input type="text" id="lnZone" placeholder="เช่น ตลาดเช้า"></div></div>
+        <label>พนักงานประจำ (คั่นด้วย ,)</label><input type="text" id="lnEmps" placeholder="เอ็ม, กิ๊ฟ">
+        <label>สินค้าที่ขาย</label><div id="lnProds" style="margin-top:4px"></div>
+        <div style="height:12px"></div>
+        <button class="btn btn-frost" onclick="doAddLine()">สร้างสาย</button>
+        <p class="note" id="lnMsg"></p>
+      </div>
+      <div class="card">
+        <h2>หักค่ากระสอบค้างส่งรายสาย</h2>
+        <p class="hint">เงินหักต่อวันของแต่ละสาย (บาท) · <b>พนักงานแก้ไม่ได้</b> · ตั้ง 0 = ไม่หัก · ระบบหักไม่เกินมูลค่ากระสอบที่ค้างจริง (10 บ./ใบ) · ไม่เข้าฐานคอมมิชชั่น</p>
+        <div id="sackDeductAdmin" style="margin-top:10px"></div>
+        <p class="note" id="sdMsg"></p>
+      </div>
+    </section>
+
+    <!-- จัดการสินค้า (admin) -->
+    <section class="screen" id="scr-products">
+      <div class="card">
+        <h2 id="pFormTitle">เพิ่มสินค้าใหม่</h2>
+        <div class="row"><div><label>รหัส (id)</label><input type="text" id="pId"></div>
+          <div style="flex:2"><label>ชื่อแสดง</label><input type="text" id="pName"></div></div>
+        <div class="row"><div><label>ราคากลาง</label><input type="number" min="0" id="pPrice" inputmode="numeric"></div>
+          <div><label>คอลัมน์ solddata</label><input type="text" id="pCol" placeholder="C–H / ว่าง"></div></div>
+        <label>ราคาขั้นบันได (min:ราคา, …)</label>
+        <input type="text" id="pTiers" placeholder="เช่น 1:15,12:13,24:12">
+        <p class="hint">เว้นว่าง = ราคาเดียว · ตัวอย่าง 1:15,12:13 = ซื้อ 1–11 ราคา 15, ตั้งแต่ 12 ราคา 13</p>
+        <div style="height:10px"></div>
+        <div class="row"><button class="btn btn-ghost" onclick="clearProdForm()" style="flex:1">ล้างฟอร์ม</button>
+          <button class="btn btn-frost" onclick="doSaveProduct()" style="flex:2">บันทึกสินค้า</button></div>
+        <p class="note" id="pMsg"></p>
+      </div>
+      <div class="card"><h2>สินค้าทั้งหมด</h2><div id="prodList"></div></div>
+    </section>
+
+    <!-- ตั้งค่า -->
+    <section class="screen" id="scr-cfg">
+      <div class="card"><h2>รูปโปรไฟล์</h2>
+        <div style="display:flex;align-items:center;gap:14px">
+          <div id="cfgAv" style="width:64px;height:64px;border-radius:99px;background:var(--frost-soft);color:var(--frost);display:grid;place-items:center;font-weight:700;font-size:26px;overflow:hidden;flex:none"></div>
+          <div style="flex:1">
+            <button class="btn btn-ghost" style="padding:9px" onclick="document.getElementById('avFile').click()">📷 เปลี่ยนรูป</button>
+            <p class="note" id="avMsg" style="margin:6px 0 0">รูปจะแสดงตอนเข้าระบบและบนจอมอนิเตอร์</p>
+          </div>
+        </div>
+        <input type="file" id="avFile" accept="image/*" class="hidden" onchange="pickAvatar(this)">
+      </div>
+      <div class="card"><h2>ธีมสี</h2><div id="themePick" style="display:flex;gap:12px"></div></div>
+      <div class="card"><h2>บัญชีที่ใช้งาน</h2>
+        <p class="note">ผู้ใช้ <b id="cfgUser"></b> · บทบาท <b id="cfgRole"></b> <span id="cfgLineWrap">· สาย <b id="cfgLine"></b></span></p>
+        <p class="note">ข้อมูล <b id="cfgTarget"></b> · วันที่ <b id="cfgDate"></b></p>
+        <button class="btn btn-ghost" onclick="logout(this)" style="color:var(--red)">ออกจากระบบ</button>
+      </div>
+      <div class="card"><h2>ข้อมูลวันนี้</h2>
+        <p class="note">รายการขาย <b id="cfgCount">0</b> ราย</p>
+        <button class="btn btn-ghost" onclick="refreshMaster()">⟳ โหลดข้อมูลลูกค้า/พนักงานใหม่</button>
+        <div style="height:8px"></div>
+        <button class="btn btn-ghost" onclick="clearDay(this)" style="color:var(--red)">ล้างข้อมูลขายวันนี้</button>
+      </div>
+    </section>
+  </main>
+
+  <nav id="nav"></nav>
+</div>
+
+<!-- ========== modal ขาย ========== -->
+<div id="modal" onclick="if(event.target===this)closeEntry()">
+  <div class="sheet">
+    <input type="text" id="mName" placeholder="ชื่อลูกค้า" style="font-weight:600;font-size:18px">
+    <div id="mUsual"></div>
+    <button class="addbtn" id="mAddBtn" onclick="showExtra()">＋ เพิ่มสินค้าอื่น</button>
+    <div class="extra" id="mExtra"></div>
+    <label class="row" id="mNoSackRow" style="display:none;align-items:center;gap:10px;cursor:pointer;background:var(--cream);border:1px solid var(--line);border-radius:12px;padding:11px 13px;margin:2px 0 0">
+      <input type="checkbox" id="mNoSack" onchange="updateNoSackRow()" style="width:22px;height:22px;flex:none">
+      <span style="flex:1;font-size:13px">น้ำแข็งซองเป็น<b>ก้อน</b> — ไม่ใช้กระสอบ <small style="color:var(--muted)">(ตัด ซอง×6 ออกจากยอดกระสอบ · โม่ยังนับปกติ)</small></span>
+    </label>
+    <label>การจ่ายเงิน</label>
+    <div class="seg" id="mPay"><button onclick="setPay('เงินสด')">เงินสด</button><button onclick="setPay('เครดิต')">เครดิต (ค้าง)</button></div>
+    <div class="row"><div><label>จ่ายมาจริง (อัตโนมัติ)</label><input type="number" min="0" id="mPaid" inputmode="numeric" readonly tabindex="-1" style="background:var(--cream)"></div>
+      <div><label>ชำระหนี้เก่า</label><input type="number" min="0" id="mDebt" inputmode="numeric" oninput="renderEntryTotal()"></div></div>
+    <div class="totline big"><span>ยอดสินค้า</span><b id="mTotal">0</b></div>
+    <div class="totline"><span>ค้าง</span><b id="mOwed" style="color:var(--red)">0</b></div>
+    <div style="height:8px"></div>
+    <div class="row"><button class="btn btn-ghost" onclick="deleteEntry()" style="color:var(--red);flex:1">ลบ</button>
+      <button class="btn btn-gold" onclick="saveEntry()" style="flex:2">บันทึก</button></div>
+  </div>
+</div>
+
+<div id="report"></div>
+<div id="toast"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
