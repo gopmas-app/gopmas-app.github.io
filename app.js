@@ -873,12 +873,13 @@ function clearDay(btn){
   });
 }
 
-// ================= พิมพ์ A4 (Android-safe: หน้าเอกสารแยก) =================
+// ================= พิมพ์สลิป 58mm (Android-safe: หน้าเอกสารแยก) =================
+// คอลัมน์เดียว กว้าง 48mm (พื้นที่พิมพ์จริงของกระดาษ 58mm = 384 dots) — SUNMI V2 Pro ผ่าน RawBT
 function reportHTML(){
   var t=totals(), n=day.employees.length||1;
   var ly = load(lyKey(), null);
   var lyRows = (ly && ly.total)
-    ? '<tr><td>วันนี้เมื่อปีที่แล้ว ('+(ly.date||'')+')</td><td>'+fmt(ly.total)+'</td></tr>'
+    ? '<tr><td>ปีที่แล้ว ('+(ly.date||'')+')</td><td>'+fmt(ly.total)+'</td></tr>'
       + '<tr><td>เทียบปีที่แล้ว</td><td>'+Math.round(t.send*100/ly.total)+'%</td></tr>'
     : '';
   var sackNet = (Number(day.sackAdd)||0)-(Number(day.sackRet)||0), sackCarry = Number(day.sackCarry)||0;
@@ -888,54 +889,56 @@ function reportHTML(){
   var km = (Number(day.endKm)||0)-(Number(day.startKm)||0);
   var credit = Object.keys(day.entries).filter(function(k){return day.entries[k].owed>0;})
     .map(function(k){ return '<tr><td>'+k+'</td><td>'+fmt(day.entries[k].owed)+'</td></tr>'; }).join('') || '<tr><td colspan="2">— ไม่มี —</td></tr>';
+  // รายลูกค้า: ชื่อ+ยอด+ค้าง แถวเดียว รายการสินค้าเป็นบรรทัดเล็กใต้ชื่อ (7 คอลัมน์เดิมไม่พอ 48mm)
   var detail = Object.keys(day.entries).map(function(k){ var e=day.entries[k];
     var items = master.products.filter(function(p){return e.items[p.id];}).map(function(p){return p.name+'×'+e.items[p.id]+((p.id==='ซอง'&&e.noSack)?' (ก้อน)':'');}).join(', ');
-    return '<tr><td>'+k+'</td><td style="text-align:left">'+items+'</td><td>'+fmt(e.total)+'</td><td>'+fmt(e.paid)+'</td><td>'+fmt(e.paidDebt)+'</td><td>'+fmt(e.owed)+'</td><td>'+(e.payment||'')+'</td></tr>';
-  }).join('') || '<tr><td colspan="7">— ไม่มี —</td></tr>';
-  return '<h1>รายงานขายประจำวัน — สาย '+session.line+'</h1>'
-    + '<div class="sub">วันที่ '+day.date+' · พนักงาน: '+(day.employees.join(', ')||'-')
-    + ' · ไมล์ '+fmt(day.startKm)+' → '+fmt(day.endKm)+' ('+fmt(km)+' กม.) · น้ำมัน '+fmt(day.liters)+' ลิตร</div>'
-    + '<div class="cols"><div>'
-    + '<table><tr><th>สินค้า</th><th>ซื้อโรงงาน</th><th>เบิกร้าน</th><th>ขาย</th><th>คืนร้าน</th><th>ผล</th></tr>'+stock+'</table>'
-    + '<table><tr><th colspan="2">ลูกค้าค้างจ่ายวันนี้</th></tr>'+credit+'</table></div><div>'
+    return '<tr><td>'+k+(e.paidDebt?' <small>(ชำระเก่า '+fmt(e.paidDebt)+')</small>':'')+'<div class="it">'+items+'</div></td><td>'+fmt(e.total)+'</td><td>'+fmt(e.owed)+'</td></tr>';
+  }).join('') || '<tr><td colspan="3">— ไม่มี —</td></tr>';
+  return '<h1>รายงานปิดวัน — สาย '+session.line+'</h1>'
+    + '<div class="sub">วันที่ '+day.date+'<br>พนักงาน: '+(day.employees.join(', ')||'-')
+    + '<br>ไมล์ '+fmt(day.startKm)+' → '+fmt(day.endKm)+' ('+fmt(km)+' กม.)<br>น้ำมัน '+fmt(day.liters)+' ลิตร</div>'
+    + '<table><tr><th>สินค้า</th><th>ซื้อ</th><th>เบิก</th><th>ขาย</th><th>คืน</th><th>ผล</th></tr>'+stock+'</table>'
     + '<table><tr><td>ลูกค้าจ่าย</td><td>'+fmt(t.cash)+'</td></tr><tr><td>เก็บหนี้เก่า</td><td>'+fmt(t.debt)+'</td></tr>'
     + '<tr><td>ค้างใหม่วันนี้</td><td>'+fmt(t.owed)+'</td></tr><tr><td>ค่าน้ำมัน+แก๊ส</td><td>'+fmt(t.fuel+t.gas)+'</td></tr>'
     + '<tr><td>ส่งเงิน (ยอดขาย)</td><td>'+fmt(t.send)+'</td></tr>'
     + (t.deduct ? '<tr><td>หักค่ากระสอบค้างส่ง</td><td>'+fmt(t.deduct)+'</td></tr>' : '')
-    + '<tr><th>เงินสดที่ต้องส่ง</th><th>'+fmt(t.deposit)+'</th></tr>'
+    + '<tr class="big"><th>เงินสดที่ต้องส่ง</th><th>'+fmt(t.deposit)+'</th></tr>'
     + lyRows
-    + '<tr><td>คอมมิชชั่น 5% ÷ '+n+' คน</td><td>'+fmt(Math.round(t.send*0.05/n))+' /คน</td></tr></table>'
+    + '<tr><td>คอม 5% ÷ '+n+' คน</td><td>'+fmt(Math.round(t.send*0.05/n))+'/คน</td></tr></table>'
     + '<table><tr><th colspan="2">กระสอบ</th></tr><tr><td>ค้างยกมา</td><td>'+fmt(sackCarry)+'</td></tr>'
     + '<tr><td>ค้างเพิ่มวันนี้</td><td>'+fmt(day.sackAdd)+'</td></tr>'
     + '<tr><td>คืนวันนี้</td><td>'+fmt(day.sackRet)+'</td></tr><tr><td>ค้างสุทธิวันนี้</td><td>'+fmt(sackNet)+'</td></tr>'
     + '<tr><th>ค้างสะสมรวม</th><th>'+fmt(sackCarry+sackNet)+'</th></tr></table>'
-    + '</div></div>'
-    + '<table><tr><th colspan="7">รายละเอียดการซื้อรายลูกค้า</th></tr>'
-    + '<tr><th>ลูกค้า</th><th>รายการ</th><th>ยอด</th><th>จ่าย</th><th>ชำระหนี้เก่า</th><th>ค้าง</th><th>การจ่าย</th></tr>'+detail+'</table>'
-    + '<div class="sign"><div>ลงชื่อพนักงานขาย</div><div>ผู้ตรวจรับของคืน + กระสอบ</div><div>ผู้รับเงิน</div></div>';
+    + '<table><tr><th colspan="2">ลูกค้าค้างจ่ายวันนี้</th></tr>'+credit+'</table>'
+    + '<table><tr><th>ลูกค้า</th><th>ยอด</th><th>ค้าง</th></tr>'+detail+'</table>'
+    + '<div class="sign"><div>พนักงานขาย</div><div>ผู้ตรวจรับของคืน + กระสอบ</div><div>ผู้รับเงิน</div></div>';
 }
-// กลไกพิมพ์เวอร์ชัน 31 กค. — เปิดหน้าเอกสารแยก (popup ก่อน, iframe fallback ถ้าโดนบล็อก)
-// เนื้อรายงานใช้ reportHTML() ปัจจุบัน (มีหักค่ากระสอบ + ป้าย (ก้อน) ครบ)
-var PRINT_CSS = '@page{size:A4;margin:8mm}*{font-family:\'Sarabun\',\'Leelawadee UI\',sans-serif}body{color:#000;font-size:10px}'
-    + 'h1{font-size:15px;margin:0}.sub{color:#444;margin-bottom:5px;font-size:10px}table{width:100%;border-collapse:collapse;margin-bottom:5px}'
-    + 'th,td{border:1px solid #999;padding:1px 4px;text-align:right;line-height:1.25}th:first-child,td:first-child{text-align:left}'
-    + '.cols{display:flex;gap:12px}.cols>div{flex:1}.sign{display:flex;gap:24px;margin-top:14px}'
-    + '.sign div{flex:1;border-top:1px dotted #000;text-align:center;padding-top:4px;font-size:11px}.pbtn{margin:8px 0}'
-    // อ่านบนจอเท่านั้น — กระดาษที่พิมพ์ออกมาคุมด้วย @page + @media print เหมือนเดิมทุกตัว ห้ามย้ายกฎพวกนี้ออกนอก screen
-    + '@media screen{body{font-size:14px;margin:0;padding:10px 12px 40px}table{font-size:13px}th,td{padding:5px 6px}'
-    + 'h1{font-size:19px}.sub{font-size:13px}.cols{display:block}'   // จอแคบวางสองคอลัมน์ซ้อนกัน (พิมพ์ยังเป็น flex)
+// สไตล์สลิปใช้ทั้งจอและกระดาษ (วัดความสูงบนจอ = ความสูงตอนพิมพ์) จอแค่ zoom ขยายให้อ่านง่าย
+// @page ค่าเริ่ม 48×200mm เป็น fallback — slipPrint() ตั้งความสูงให้พอดีเนื้อหา ไม่ไหลกระดาษเปล่า
+var PRINT_CSS = '@page{size:48mm 200mm;margin:0}*{font-family:\'Sarabun\',\'Leelawadee UI\',sans-serif;box-sizing:border-box}'
+    + 'body{color:#000;margin:0;background:#fff}#slip{width:48mm;padding:1mm 0 4mm;font-size:10px;line-height:1.3}'
+    + 'h1{font-size:12px;margin:0 0 2px;text-align:center}.sub{margin-bottom:4px}'
+    + 'table{width:100%;border-collapse:collapse;margin-bottom:4px;font-size:9px}'
+    + 'th,td{border-bottom:1px dotted #000;padding:1px 1px;text-align:right;vertical-align:top}th:first-child,td:first-child{text-align:left}'
+    + 'th{font-weight:700}.big th{font-size:12px;border-top:1px solid #000;border-bottom:1px solid #000}.it{font-size:8.5px}small{font-size:8px}'
+    + '.sign div{border-top:1px dotted #000;text-align:center;margin-top:9mm;font-size:9px}'
+    + '@media screen{body{padding:10px}#slip{zoom:1.9;margin:0 auto}.m #slip{zoom:1}'
     + '.pbtn{position:sticky;top:0;z-index:2;width:100%;padding:15px;font-size:17px;font-weight:700;'
     + 'color:#fff;background:#B08D2E;border:0;border-radius:12px;margin:0 0 12px}}'
-    + '@media print{.pbtn{display:none}body{font-size:9.5px}}';
+    + '@media print{.pbtn{display:none}}';
+// วัดความสูงจริงของสลิป (ปิด zoom ชั่วคราว) → @page สูงเท่าเนื้อหา · px→mm = ×25.4/96
+var SLIP_JS = 'function slipPrint(){var b=document.body,s=document.getElementById("slip");b.classList.add("m");'
+    + 'var h=Math.ceil(s.offsetHeight*25.4/96)+2;b.classList.remove("m");'
+    + 'document.getElementById("pg").textContent="@page{size:48mm "+h+"mm;margin:0}";window.print();}';
 function printDoc(){
   return '<!DOCTYPE html><html lang="th"><head><meta charset="utf-8">'
     // 🔴 ขาดบรรทัดนี้ = มือถือเรนเดอร์หน้าที่ความกว้างสมมติ 980px แล้วย่อทั้งหน้าลงพอดีจอ
     //    ตัวหนังสือ 10px เหลือ ~4px ปุ่มพิมพ์ก็จิ๋วตาม (อาการที่พนักงานแจ้ง 4 ส.ค. 2026)
     + '<meta name="viewport" content="width=device-width,initial-scale=1">'
-    + '<title>รายงานขาย '+session.line+' '+day.date+'</title>'
-    + '<style>' + PRINT_CSS + '</style></head><body>'
-    + '<button class="pbtn" onclick="window.print()">🖨 พิมพ์ / บันทึกเป็น PDF</button>'
-    + reportHTML() + '</body></html>';
+    + '<title>รายงานปิดวัน '+session.line+' '+day.date+'</title>'
+    + '<style>' + PRINT_CSS + '</style><style id="pg"></style><script>' + SLIP_JS + '</script></head><body>'
+    + '<button class="pbtn" onclick="slipPrint()">🖨 พิมพ์สลิป</button>'
+    + '<div id="slip">' + reportHTML() + '</div></body></html>';
 }
 var IS_IOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1);
 function printReport(){
@@ -950,7 +953,7 @@ function printReport(){
         + 'body>*:not(#printArea){display:none!important}#printArea{display:block}' + PRINT_CSS;
       document.head.appendChild(s);
     }
-    a.innerHTML = reportHTML();
+    a.innerHTML = '<div id="slip">' + reportHTML() + '</div>';
     window.print();
     return;
   }
@@ -961,7 +964,7 @@ function printReport(){
     var f = document.createElement('iframe'); f.style.position='fixed'; f.style.right='0'; f.style.bottom='0';
     f.style.width='0'; f.style.height='0'; f.style.border='0'; document.body.appendChild(f);
     f.contentDocument.open(); f.contentDocument.write(printDoc()); f.contentDocument.close();
-    setTimeout(function(){ f.contentWindow.focus(); f.contentWindow.print(); }, 400);
+    setTimeout(function(){ f.contentWindow.focus(); f.contentWindow.slipPrint(); }, 400);
   }
 }
 
